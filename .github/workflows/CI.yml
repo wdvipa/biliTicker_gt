@@ -3,125 +3,161 @@
 #
 #    maturin generate-ci github
 #
-name: Build and Release
+name: CI
 
 on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - '*'
+  pull_request:
   workflow_dispatch:
     inputs:
-      pre_release:
-        description: '标记为预发行版'
+      pre-release:
+        description: "标记为预发布版"
         required: true
-        default: 'false'
+        default: "false"
         type: boolean
-  push:
-    branches: [ "main" ]
-    tags: [ "v*.*.*" ]
-  pull_request:
-    branches: [ "main" ]
 
-env:
-  CARGO_TERM_COLOR: always
-  SCCACHE_DIR: ./sccache
+permissions:
+  contents: read
 
 jobs:
-  build:
+  windows:
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
-      fail-fast: false
       matrix:
-        platform: 
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            artifact: wheels-windows-x64
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            artifact: wheels-linux-x64
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            artifact: wheels-macos-arm64
-          - target: x86_64-apple-darwin
-            os: macos-13
-            artifact: wheels-macos-x64
-
-    runs-on: ${{ matrix.platform.os }}
+        platform:
+          - runner: windows-latest
+            target: x64
     steps:
       - uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
-
-      - name: Install maturin
-        run: pip install maturin
-
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
       - name: Build wheels
+        uses: PyO3/maturin-action@v1
         env:
-          RUSTFLAGS: ${{ matrix.platform.os == 'windows-latest' && '-Ctarget-feature=+crt-static' || '' }}
-        run: |
-          maturin build --release --strip --find-interpreter \
-            --target ${{ matrix.platform.target }} \
-            --out ./dist
-        shell: bash  # 关键修复点
-          
-      - uses: actions/upload-artifact@v4  # 升级到 v4 版本
+            RUSTFLAGS: "-Ctarget-feature=+crt-static"
         with:
-          name: ${{ matrix.platform.artifact }}
-          path: ./dist/*.whl
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-windows-${{ matrix.platform.target }}
+          path: dist
+
+  linux:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            target: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-linux-${{ matrix.platform.target }}
+          path: dist
+
+  macos-arm64:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-latest
+            target: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: aarch64
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: dist
+
+  macos-x64:
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      matrix:
+        platform:
+          - runner: macos-13
+            target: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+          architecture: ${{ matrix.platform.target }}
+      - name: Build wheels
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --find-interpreter
+          sccache: 'true'
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-${{ matrix.platform.target }}
+          path: dist
 
   sdist:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Create sdist
-        run: |
-          pip install maturin
-          maturin sdist --out ./dist
-          
-      - uses: actions/upload-artifact@v4  # 升级到 v4 版本
+      - name: Build sdist
+        uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
         with:
           name: wheels-sdist
-          path: ./dist/*.tar.gz
+          path: dist
 
   release:
-    needs: [build, sdist]
+    name: Release
     runs-on: ubuntu-latest
+    if: "startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'"
+    needs: [windows, linux, macos-x64, macos-arm64, sdist]
     permissions:
       contents: write
-      actions: read
-  
-    if: |
-      github.event_name == 'workflow_dispatch' || 
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/'))
-  
     steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
         with:
-          path: artifacts
-          merge-multiple: true
-  
-      - name: Setup Release Parameters
-        id: vars
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "TAG_NAME=manual-${{ github.run_id }}" >> $GITHUB_ENV
-          else
-            echo "TAG_NAME=${{ github.ref_name }}" >> $GITHUB_ENV
-          fi
-  
-      - name: Create Release
-        uses: softprops/action-gh-release@v1  # 更可靠的发布 Action
-        with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: ${{ env.TAG_NAME }}
-          draft: false
-          prerelease: ${{ github.event.inputs.pre_release || false }}
-          body: |
-            Automated release containing:
-            - Binary wheels for multiple platforms
-            - Source distribution
           files: |
-            artifacts/**/*
-
-      # 删除旧的资产上传步骤，已合并到 softprops/action-gh-release
+            **/*.whl
+            **/*.tar.gz
+          tag_name: ${{ github.ref_name || 'v0.0.0' }}  # 使用标签名称或默认值
+          name: Release ${{ github.ref_name || 'v0.0.0' }}
+          body: "Automated release for ${{ github.ref_name || 'v0.0.0' }}"
+          prerelease: ${{ github.event.inputs.pre-release || startsWith(github.ref, 'refs/tags/pre-') }}  # 手动选择或根据标签判断
+          update: true
