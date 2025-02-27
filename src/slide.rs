@@ -22,6 +22,7 @@ impl Default for Slide {
         }
     }
 }
+
 impl Api for Slide {
     /// (new_challenge, 完整背景图url, 缺口背景图url, 滑块图url)
     type ArgsType = (String, String, String, String);
@@ -53,12 +54,7 @@ impl Api for Slide {
             .send()
             .map_err(net_work_error)?;
         let res = res.text().map_err(|e| other("什么b玩意错误", e))?;
-        let res = res
-            .strip_prefix("geetest_1717915671544(")
-            .ok_or_else(|| other_without_source("前缀错误"))?
-            .strip_suffix(")")
-            .ok_or_else(|| other_without_source("后缀错误"))?;
-        let res: Value = serde_json::from_str(res).map_err(parse_error)?;
+        let res: Value = serde_json::from_str(&res).map_err(parse_error)?;
         let c: Vec<u8> =
             serde_json::from_value(res.get("c").ok_or_else(|| missing_param("c"))?.clone())
                 .map_err(parse_error)?;
@@ -125,12 +121,7 @@ impl Api for Slide {
             .send()
             .map_err(net_work_error)?;
         let res = res.text().unwrap();
-        let res = res
-            .strip_prefix("geetest_1717918222610(")
-            .ok_or_else(|| other_without_source("前缀错误"))?
-            .strip_suffix(")")
-            .ok_or_else(|| other_without_source("后缀错误"))?;
-        let res: Value = serde_json::from_str(res).unwrap();
+        let res: Value = serde_json::from_str(&res).unwrap();
         Ok((
             res.get("message")
                 .ok_or_else(|| missing_param("message"))?
