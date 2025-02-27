@@ -61,6 +61,7 @@ jobs:
           maturin build --release --strip --find-interpreter \
             --target ${{ matrix.platform.target }} \
             --out ./dist
+        shell: bash  # 关键修复点
           
       - uses: actions/upload-artifact@v4  # 升级到 v4 版本
         with:
