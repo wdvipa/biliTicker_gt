@@ -160,8 +160,8 @@ jobs:
           files: |
             **/*.whl
             **/*.tar.gz
-          tag_name: ${{ github.ref_name || github.event.inputs.version || 'v0.0.0' }}  # 使用标签名称、手动输入的版本号或默认值
-          name: Release ${{ github.ref_name || github.event.inputs.version || 'v0.0.0' }}
-          body: "Automated release for ${{ github.ref_name || github.event.inputs.version || 'v0.0.0' }}"
+          tag_name: ${{ github.event.inputs.version || 'v0.0.0' }}  # 使用标签名称、手动输入的版本号或默认值
+          name: Release ${{ github.event.inputs.version || 'v0.0.0' }}
+          body: "Automated release for ${{ github.event.inputs.version || 'v0.0.0' }}"
           prerelease: ${{ github.event.inputs.pre-release || startsWith(github.ref, 'refs/tags/pre-') }}  # 手动选择或根据标签判断
           update: true
